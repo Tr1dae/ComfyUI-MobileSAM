@@ -1,4 +1,5 @@
 import os
+import urllib.request
 from typing import List, Optional, Tuple
 
 import cv2
@@ -42,16 +43,69 @@ def _find_file(base_dir: str, keywords: Tuple[str, ...], extensions: Tuple[str, 
     return None
 
 
-def _grounding_config_path() -> Optional[str]:
-    return _find_file(GROUNDING_DINO_DIR, ("groundingdino",), (".cfg.py", ".cfg", ".py"))
+def _download_file(url: str, dest_path: str) -> None:
+    """Download a file from URL to destination path."""
+    try:
+        print(f"Downloading {url} to {dest_path}")
+        urllib.request.urlretrieve(url, dest_path)
+        print(f"Successfully downloaded {dest_path}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to download {url}: {e}")
 
 
-def _grounding_checkpoint_path() -> Optional[str]:
-    return _find_file(GROUNDING_DINO_DIR, ("groundingdino",), (".pth", ".pt"))
+def _ensure_grounding_dino_dir() -> None:
+    """Ensure the GroundingDINO directory exists."""
+    os.makedirs(GROUNDING_DINO_DIR, exist_ok=True)
 
 
-def _mobile_sam_checkpoint_path() -> Optional[str]:
-    return _find_file(DETECTION_DIR, ("mobile_sam", "mobilesam", "sam"), (".pt", ".pth", ".safetensors"))
+def _ensure_detection_dir() -> None:
+    """Ensure the detection directory exists."""
+    os.makedirs(DETECTION_DIR, exist_ok=True)
+
+
+def _grounding_config_path() -> str:
+    """Get or download GroundingDINO config file."""
+    _ensure_grounding_dino_dir()
+    config_file = _find_file(GROUNDING_DINO_DIR, ("groundingdino",), (".cfg.py", ".cfg", ".py"))
+
+    if config_file is None:
+        # Download the config file
+        config_url = "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/GroundingDINO_SwinT_OGC.cfg.py"
+        config_path = os.path.join(GROUNDING_DINO_DIR, "GroundingDINO_SwinT_OGC.cfg.py")
+        _download_file(config_url, config_path)
+        return config_path
+
+    return config_file
+
+
+def _grounding_checkpoint_path() -> str:
+    """Get or download GroundingDINO checkpoint file."""
+    _ensure_grounding_dino_dir()
+    checkpoint_file = _find_file(GROUNDING_DINO_DIR, ("groundingdino",), (".pth", ".pt"))
+
+    if checkpoint_file is None:
+        # Download the checkpoint file
+        checkpoint_url = "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth"
+        checkpoint_path = os.path.join(GROUNDING_DINO_DIR, "groundingdino_swint_ogc.pth")
+        _download_file(checkpoint_url, checkpoint_path)
+        return checkpoint_path
+
+    return checkpoint_file
+
+
+def _mobile_sam_checkpoint_path() -> str:
+    """Get or download MobileSAM checkpoint file."""
+    _ensure_detection_dir()
+    checkpoint_file = _find_file(DETECTION_DIR, ("mobile_sam", "mobilesam", "sam"), (".pt", ".pth", ".safetensors"))
+
+    if checkpoint_file is None:
+        # Download the MobileSAM checkpoint
+        checkpoint_url = "https://github.com/ChaoningZhang/MobileSAM/releases/download/v1.0.0/mobile_sam.pt"
+        checkpoint_path = os.path.join(DETECTION_DIR, "mobile_sam.pt")
+        _download_file(checkpoint_url, checkpoint_path)
+        return checkpoint_path
+
+    return checkpoint_file
 
 
 class EasyMobileSAM:
@@ -136,11 +190,6 @@ class EasyMobileSAM:
             )
         config_path = _grounding_config_path()
         checkpoint_path = _grounding_checkpoint_path()
-        if not config_path or not checkpoint_path:
-            raise FileNotFoundError(
-                "Could not locate GroundingDINO config/checkpoint under "
-                f"'{GROUNDING_DINO_DIR}'."
-            )
         cls._grounding_model = GroundingDinoModel(
             model_config_path=config_path,
             model_checkpoint_path=checkpoint_path,
@@ -158,10 +207,6 @@ class EasyMobileSAM:
         if builder is None:
             raise RuntimeError("SAM builder is missing from the MobileSAM registry.")
         checkpoint_path = _mobile_sam_checkpoint_path()
-        if not checkpoint_path:
-            raise FileNotFoundError(
-                f"MobileSAM checkpoint not found in '{DETECTION_DIR}'."
-            )
         cls._mobile_sam_checkpoint = checkpoint_path
         sam_model = builder(checkpoint=checkpoint_path)
         sam_model.to(cls._device)

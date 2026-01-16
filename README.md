@@ -17,7 +17,9 @@ A ComfyUI custom node for text-guided image segmentation using GroundingDINO and
 pip install groundingdino
 ```
 
-### 2. Download Required Models
+### 2. Download Required Models (Optional)
+
+The node will automatically download the required models on first use. However, if you prefer to download them manually:
 
 #### GroundingDINO Models
 Download the GroundingDINO config and weights:
@@ -44,6 +46,8 @@ ComfyUI/
 │   └── detection/
 │       └── mobile_sam.pt
 ```
+
+**Note**: If you don't download the models manually, they will be automatically downloaded to the correct directories when you first use the node.
 
 ### 3. Install the Custom Node
 
@@ -107,8 +111,12 @@ The node works in a pipeline:
 
 ### Import Errors
 - Ensure GroundingDINO is installed: `pip install groundingdino`
-- Check that model files are in the correct directories
+- The required model files will be automatically downloaded on first use
 - Restart ComfyUI after installing dependencies
+
+### Download Issues
+- If automatic downloads fail, download the models manually as described in the installation section
+- Check your internet connection and ensure you have sufficient disk space
 
 ### No Detections
 - Try lowering the `threshold` value
@@ -119,6 +127,7 @@ The node works in a pipeline:
 - The node requires CUDA-compatible GPU for best performance
 - Large images may take longer to process
 - Consider using minimum size filters to reduce processing of small/irrelevant detections
+- First run may take longer due to model downloads
 
 ## License
 
