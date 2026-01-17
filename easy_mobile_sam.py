@@ -47,7 +47,11 @@ def _download_file(url: str, dest_path: str) -> None:
     """Download a file from URL to destination path."""
     try:
         print(f"Downloading {url} to {dest_path}")
-        urllib.request.urlretrieve(url, dest_path)
+        # Set up request with user agent to avoid issues
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req) as response:
+            with open(dest_path, 'wb') as f:
+                f.write(response.read())
         print(f"Successfully downloaded {dest_path}")
     except Exception as e:
         raise RuntimeError(f"Failed to download {url}: {e}")
@@ -70,7 +74,7 @@ def _grounding_config_path() -> str:
 
     if config_file is None:
         # Download the config file
-        config_url = "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/GroundingDINO_SwinT_OGC.cfg.py"
+        config_url = "https://huggingface.co/pengxian/grounding-dino/resolve/main/GroundingDINO_SwinT_OGC.cfg.py"
         config_path = os.path.join(GROUNDING_DINO_DIR, "GroundingDINO_SwinT_OGC.cfg.py")
         _download_file(config_url, config_path)
         return config_path
@@ -85,7 +89,7 @@ def _grounding_checkpoint_path() -> str:
 
     if checkpoint_file is None:
         # Download the checkpoint file
-        checkpoint_url = "https://huggingface.co/ShilongLiu/GroundingDINO/resolve/main/groundingdino_swint_ogc.pth"
+        checkpoint_url = "https://huggingface.co/pengxian/grounding-dino/resolve/main/groundingdino_swint_ogc.pth"
         checkpoint_path = os.path.join(GROUNDING_DINO_DIR, "groundingdino_swint_ogc.pth")
         _download_file(checkpoint_url, checkpoint_path)
         return checkpoint_path
@@ -100,7 +104,7 @@ def _mobile_sam_checkpoint_path() -> str:
 
     if checkpoint_file is None:
         # Download the MobileSAM checkpoint
-        checkpoint_url = "https://github.com/ChaoningZhang/MobileSAM/releases/download/v1.0.0/mobile_sam.pt"
+        checkpoint_url = "https://github.com/ChaoningZhang/MobileSAM/blob/master/weights/mobile_sam.pt?raw=true"
         checkpoint_path = os.path.join(DETECTION_DIR, "mobile_sam.pt")
         _download_file(checkpoint_url, checkpoint_path)
         return checkpoint_path

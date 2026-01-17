@@ -23,8 +23,8 @@ The node will automatically download the required models on first use. However, 
 
 #### GroundingDINO Models
 Download the GroundingDINO config and weights:
-- Config: [GroundingDINO_SwinT_OGC.cfg.py](https://huggingface.co/ShilongLiu/GroundingDINO/blob/main/GroundingDINO_SwinT_OGC.cfg.py)
-- Weights: [groundingdino_swint_ogc.pth](https://huggingface.co/ShilongLiu/GroundingDINO/blob/main/groundingdino_swint_ogc.pth)
+- Config: [GroundingDINO_SwinT_OGC.cfg.py](https://huggingface.co/pengxian/grounding-dino/resolve/main/GroundingDINO_SwinT_OGC.cfg.py)
+- Weights: [groundingdino_swint_ogc.pth](https://huggingface.co/pengxian/grounding-dino/resolve/main/groundingdino_swint_ogc.pth)
 
 Place them in your ComfyUI `models/grounding-dino/` directory:
 ```
@@ -37,7 +37,7 @@ ComfyUI/
 
 #### MobileSAM Model
 Download the MobileSAM checkpoint:
-- [mobile_sam.pt](https://github.com/ChaoningZhang/MobileSAM/releases/download/v1.0.0/mobile_sam.pt)
+- [mobile_sam.pt](https://github.com/ChaoningZhang/MobileSAM/blob/master/weights/mobile_sam.pt?raw=true)
 
 Place it in your ComfyUI `models/detection/` directory:
 ```
