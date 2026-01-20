@@ -194,11 +194,25 @@ class EasyMobileSAM:
             )
         config_path = _grounding_config_path()
         checkpoint_path = _grounding_checkpoint_path()
-        cls._grounding_model = GroundingDinoModel(
-            model_config_path=config_path,
-            model_checkpoint_path=checkpoint_path,
-            device=cls._device.type,
-        )
+
+        try:
+            cls._grounding_model = GroundingDinoModel(
+                model_config_path=config_path,
+                model_checkpoint_path=checkpoint_path,
+                device=cls._device.type,
+            )
+        except ValueError as e:
+            if "hf_transfer" in str(e) and "not available" in str(e):
+                # Disable fast transfer and retry
+                print("Fast transfer (hf_transfer) not available, disabling and retrying...")
+                os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+                cls._grounding_model = GroundingDinoModel(
+                    model_config_path=config_path,
+                    model_checkpoint_path=checkpoint_path,
+                    device=cls._device.type,
+                )
+            else:
+                raise
         return cls._grounding_model
 
     @classmethod
