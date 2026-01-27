@@ -11,10 +11,11 @@ A ComfyUI custom node for text-guided image segmentation using GroundingDINO and
 
 ## Installation
 
-### 1. Install GroundingDINO
+### 1. Install Python dependencies
 
 ```bash
-pip install groundingdino
+cd custom_nodes/ComfyUI-MobileSAM
+pip install -r requirements.txt
 ```
 
 ### 2. Download Required Models (Optional)
@@ -48,6 +49,18 @@ ComfyUI/
 ```
 
 **Note**: If you don't download the models manually, they will be automatically downloaded to the correct directories when you first use the node.
+
+### Optional model selection
+
+Each Easy Mobile SAM node now exposes three **optional** dropdown inputs:
+
+- `grounding_config_choice` (GroundingDINO config)
+- `grounding_checkpoint_choice` (GroundingDINO weights)
+- `mobile_sam_checkpoint_choice` (MobileSAM checkpoint)
+
+All three default to `AUTO`, which scans `models/grounding-dino`, `models/groundingdino`, `models/grounding_dino`, `models/detection`, `models/detections`, `models/sam`, and `models/mobile-sam` for matching files before triggering any download. If you pre-place a file inside one of those folders, select it from the dropdown to skip the download entirely—ComfyUI will load the path you chose and raise an error if the file later disappears.
+
+Setting any input to a specific file path also works; the node will validate the file exists before using it and will never call the downloader when a file is explicitly provided.
 
 ### 3. Install the Custom Node
 

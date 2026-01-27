@@ -1,6 +1,6 @@
 import os
 import urllib.request
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 import cv2
 import numpy as np
@@ -27,6 +27,40 @@ except ImportError as exc:
 GROUNDING_DINO_DIR = os.path.join(folder_paths.models_dir, "grounding-dino")
 DETECTION_DIR = os.path.join(folder_paths.models_dir, "detection")
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+MASK_DTYPE_CHOICES = ("float16", "float32", "bool")
+MASK_DEVICE_CHOICES = ("cpu", "gpu")
+DEFAULT_MASK_DTYPE = "float16"
+DEFAULT_MASK_DEVICE = "gpu"
+
+AUTO_SELECTION = "AUTO"
+
+GROUNDING_CONFIG_EXTENSIONS = (".cfg.py", ".cfg", ".py")
+GROUNDING_CHECKPOINT_EXTENSIONS = (".pth", ".pt")
+MOBILE_SAM_EXTENSIONS = (".pt", ".pth", ".safetensors")
+
+GROUNDING_ALIAS_DIRS = (
+    os.path.join(folder_paths.models_dir, "grounding-dino"),
+    os.path.join(folder_paths.models_dir, "groundingdino"),
+    os.path.join(folder_paths.models_dir, "grounding_dino"),
+)
+DETECTION_ALIAS_DIRS = (
+    os.path.join(folder_paths.models_dir, "detection"),
+    os.path.join(folder_paths.models_dir, "detections"),
+    os.path.join(folder_paths.models_dir, "sam"),
+    os.path.join(folder_paths.models_dir, "mobile-sam"),
+    os.path.join(folder_paths.models_dir, "mobile_sam"),
+)
+
+GROUNDING_CANONICAL_CONFIG = os.path.join(
+    GROUNDING_DINO_DIR, "GroundingDINO_SwinT_OGC.cfg.py"
+)
+GROUNDING_CANONICAL_CHECKPOINT = os.path.join(
+    GROUNDING_DINO_DIR, "groundingdino_swint_ogc.pth"
+)
+MOBILE_SAM_CANONICAL_CHECKPOINT = os.path.join(
+    DETECTION_DIR, "mobile_sam.pt"
+)
 
 
 def _find_file(base_dir: str, keywords: Tuple[str, ...], extensions: Tuple[str, ...]) -> Optional[str]:
@@ -67,59 +101,261 @@ def _ensure_detection_dir() -> None:
     os.makedirs(DETECTION_DIR, exist_ok=True)
 
 
-def _grounding_config_path() -> str:
-    """Get or download GroundingDINO config file."""
+def _gather_existing_files(
+    directories: Tuple[str, ...], extensions: Tuple[str, ...]
+) -> List[str]:
+    matches: List[str] = []
+    for directory in directories:
+        if not os.path.isdir(directory):
+            continue
+        for entry in sorted(os.listdir(directory)):
+            candidate = os.path.join(directory, entry)
+            if not os.path.isfile(candidate):
+                continue
+            if extensions and not entry.lower().endswith(extensions):
+                continue
+            matches.append(candidate)
+    return matches
+
+
+def _first_matching_file(
+    directories: Tuple[str, ...], keywords: Tuple[str, ...], extensions: Tuple[str, ...]
+) -> Optional[str]:
+    for directory in directories:
+        match = _find_file(directory, keywords, extensions)
+        if match:
+            return match
+    return None
+
+
+def _resolve_model_selection(
+    selection: Optional[str],
+    auto_resolver: Callable[[], Optional[str]],
+    download_callback: Callable[[], str],
+    description: str,
+) -> str:
+    normalized = (selection or "").strip()
+    if normalized and normalized.upper() != AUTO_SELECTION:
+        path = os.path.abspath(os.path.expanduser(normalized))
+        if not os.path.isfile(path):
+            raise RuntimeError(f"{description} not found at {path}")
+        return path
+    auto_path = auto_resolver()
+    if auto_path:
+        return auto_path
+    return download_callback()
+
+
+def _build_choice_list(candidates: List[str]) -> List[str]:
+    seen = set()
+    choices = []
+    for candidate in candidates:
+        normalized = os.path.abspath(candidate)
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        choices.append(normalized)
+    return [AUTO_SELECTION] + choices
+
+
+def _resolve_mask_device_choice(choice: str) -> torch.device:
+    if choice.lower() == "gpu" and torch.cuda.is_available():
+        return torch.device("cuda")
+    return torch.device("cpu")
+
+
+def _cast_mask_tensor(
+    tensor: torch.Tensor, dtype_choice: str, target_device: torch.device
+) -> torch.Tensor:
+    normalized = dtype_choice.lower()
+    if normalized == "bool":
+        mask = tensor > 0.5
+        return mask.to(device=target_device)
+    dtype = torch.float16 if normalized == "float16" else torch.float32
+    return tensor.to(dtype=dtype, device=target_device)
+
+
+def _auto_grounding_config_path() -> Optional[str]:
+    if os.path.isfile(GROUNDING_CANONICAL_CONFIG):
+        return GROUNDING_CANONICAL_CONFIG
+    match = _first_matching_file(
+        (GROUNDING_DINO_DIR,),
+        ("groundingdino",),
+        GROUNDING_CONFIG_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        GROUNDING_ALIAS_DIRS, ("groundingdino",), GROUNDING_CONFIG_EXTENSIONS
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        (folder_paths.models_dir,),
+        ("groundingdino",),
+        GROUNDING_CONFIG_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        GROUNDING_ALIAS_DIRS,
+        (),
+        GROUNDING_CONFIG_EXTENSIONS,
+    )
+    if match:
+        return match
+    return None
+
+
+def _auto_grounding_checkpoint_path() -> Optional[str]:
+    if os.path.isfile(GROUNDING_CANONICAL_CHECKPOINT):
+        return GROUNDING_CANONICAL_CHECKPOINT
+    match = _first_matching_file(
+        (GROUNDING_DINO_DIR,),
+        ("groundingdino",),
+        GROUNDING_CHECKPOINT_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        GROUNDING_ALIAS_DIRS, ("groundingdino",), GROUNDING_CHECKPOINT_EXTENSIONS
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        (folder_paths.models_dir,),
+        ("groundingdino",),
+        GROUNDING_CHECKPOINT_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        GROUNDING_ALIAS_DIRS,
+        (),
+        GROUNDING_CHECKPOINT_EXTENSIONS,
+    )
+    if match:
+        return match
+    return None
+
+
+def _auto_mobile_sam_checkpoint_path() -> Optional[str]:
+    if os.path.isfile(MOBILE_SAM_CANONICAL_CHECKPOINT):
+        return MOBILE_SAM_CANONICAL_CHECKPOINT
+    match = _first_matching_file(
+        (DETECTION_DIR,),
+        ("mobile_sam", "mobilesam", "sam"),
+        MOBILE_SAM_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        DETECTION_ALIAS_DIRS,
+        ("mobile_sam", "mobilesam", "sam"),
+        MOBILE_SAM_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        (folder_paths.models_dir,),
+        ("mobile_sam", "mobilesam", "sam"),
+        MOBILE_SAM_EXTENSIONS,
+    )
+    if match:
+        return match
+    match = _first_matching_file(
+        DETECTION_ALIAS_DIRS,
+        (),
+        MOBILE_SAM_EXTENSIONS,
+    )
+    if match:
+        return match
+    return None
+
+
+def _download_grounding_config() -> str:
     _ensure_grounding_dino_dir()
-    config_file = _find_file(GROUNDING_DINO_DIR, ("groundingdino",), (".cfg.py", ".cfg", ".py"))
-
-    if config_file is None:
-        # Download the config file
-        config_url = "https://huggingface.co/pengxian/grounding-dino/resolve/main/GroundingDINO_SwinT_OGC.cfg.py"
-        config_path = os.path.join(GROUNDING_DINO_DIR, "GroundingDINO_SwinT_OGC.cfg.py")
-        _download_file(config_url, config_path)
-        return config_path
-
-    return config_file
+    config_url = "https://huggingface.co/pengxian/grounding-dino/resolve/main/GroundingDINO_SwinT_OGC.cfg.py"
+    _download_file(config_url, GROUNDING_CANONICAL_CONFIG)
+    return GROUNDING_CANONICAL_CONFIG
 
 
-def _grounding_checkpoint_path() -> str:
-    """Get or download GroundingDINO checkpoint file."""
+def _download_grounding_checkpoint() -> str:
     _ensure_grounding_dino_dir()
-    checkpoint_file = _find_file(GROUNDING_DINO_DIR, ("groundingdino",), (".pth", ".pt"))
-
-    if checkpoint_file is None:
-        # Download the checkpoint file
-        checkpoint_url = "https://huggingface.co/pengxian/grounding-dino/resolve/main/groundingdino_swint_ogc.pth"
-        checkpoint_path = os.path.join(GROUNDING_DINO_DIR, "groundingdino_swint_ogc.pth")
-        _download_file(checkpoint_url, checkpoint_path)
-        return checkpoint_path
-
-    return checkpoint_file
+    checkpoint_url = "https://huggingface.co/pengxian/grounding-dino/resolve/main/groundingdino_swint_ogc.pth"
+    _download_file(checkpoint_url, GROUNDING_CANONICAL_CHECKPOINT)
+    return GROUNDING_CANONICAL_CHECKPOINT
 
 
-def _mobile_sam_checkpoint_path() -> str:
-    """Get or download MobileSAM checkpoint file."""
+def _download_mobile_sam_checkpoint() -> str:
     _ensure_detection_dir()
-    checkpoint_file = _find_file(DETECTION_DIR, ("mobile_sam", "mobilesam", "sam"), (".pt", ".pth", ".safetensors"))
+    checkpoint_url = "https://github.com/ChaoningZhang/MobileSAM/blob/master/weights/mobile_sam.pt?raw=true"
+    _download_file(checkpoint_url, MOBILE_SAM_CANONICAL_CHECKPOINT)
+    return MOBILE_SAM_CANONICAL_CHECKPOINT
 
-    if checkpoint_file is None:
-        # Download the MobileSAM checkpoint
-        checkpoint_url = "https://github.com/ChaoningZhang/MobileSAM/blob/master/weights/mobile_sam.pt?raw=true"
-        checkpoint_path = os.path.join(DETECTION_DIR, "mobile_sam.pt")
-        _download_file(checkpoint_url, checkpoint_path)
-        return checkpoint_path
 
-    return checkpoint_file
+def _grounding_config_path(selection: Optional[str]) -> str:
+    """Resolve and optionally download GroundingDINO config file."""
+    _ensure_grounding_dino_dir()
+    return _resolve_model_selection(
+        selection,
+        _auto_grounding_config_path,
+        _download_grounding_config,
+        "GroundingDINO config",
+    )
+
+
+def _grounding_checkpoint_path(selection: Optional[str]) -> str:
+    """Resolve and optionally download GroundingDINO checkpoint file."""
+    _ensure_grounding_dino_dir()
+    return _resolve_model_selection(
+        selection,
+        _auto_grounding_checkpoint_path,
+        _download_grounding_checkpoint,
+        "GroundingDINO checkpoint",
+    )
+
+
+def _mobile_sam_checkpoint_path(selection: Optional[str]) -> str:
+    """Resolve and optionally download MobileSAM checkpoint file."""
+    _ensure_detection_dir()
+    return _resolve_model_selection(
+        selection,
+        _auto_mobile_sam_checkpoint_path,
+        _download_mobile_sam_checkpoint,
+        "MobileSAM checkpoint",
+    )
 
 
 class EasyMobileSAM:
     _grounding_model: Optional["GroundingDinoModel"] = None
     _sam_predictor: Optional["SamPredictor"] = None
     _mobile_sam_checkpoint: Optional[str] = None
+    _grounding_model_key: Optional[Tuple[str, str, str]] = None
+    _sam_predictor_key: Optional[Tuple[str, str]] = None
     _device = DEVICE
 
     @classmethod
     def INPUT_TYPES(cls):
+        grounding_config_choices = _build_choice_list(
+            _gather_existing_files(
+                GROUNDING_ALIAS_DIRS + (folder_paths.models_dir,),
+                GROUNDING_CONFIG_EXTENSIONS,
+            )
+        )
+        grounding_checkpoint_choices = _build_choice_list(
+            _gather_existing_files(
+                GROUNDING_ALIAS_DIRS + (folder_paths.models_dir,),
+                GROUNDING_CHECKPOINT_EXTENSIONS,
+            )
+        )
+        mobile_sam_checkpoint_choices = _build_choice_list(
+            _gather_existing_files(
+                DETECTION_ALIAS_DIRS + (folder_paths.models_dir,),
+                MOBILE_SAM_EXTENSIONS,
+            )
+        )
+
         return {
             "required": {
                 "image": ("IMAGE",),
@@ -127,7 +363,38 @@ class EasyMobileSAM:
                 "threshold": ("FLOAT", {"default": 0.35, "min": 0.0, "max": 1.0, "step": 0.01}),
                 "min_pixels_width": ("INT", {"default": 0, "min": 0, "max": 4096, "step": 1}),
                 "min_pixels_height": ("INT", {"default": 0, "min": 0, "max": 4096, "step": 1}),
-            }
+            },
+            "optional": {
+                "grounding_config_choice": (
+                    "STRING",
+                    {
+                        "default": AUTO_SELECTION,
+                        "choices": grounding_config_choices,
+                    },
+                ),
+                "grounding_checkpoint_choice": (
+                    "STRING",
+                    {
+                        "default": AUTO_SELECTION,
+                        "choices": grounding_checkpoint_choices,
+                    },
+                ),
+                "mobile_sam_checkpoint_choice": (
+                    "STRING",
+                    {
+                        "default": AUTO_SELECTION,
+                        "choices": mobile_sam_checkpoint_choices,
+                    },
+                ),
+                "mask_dtype": (
+                    list(MASK_DTYPE_CHOICES),
+                    {"default": DEFAULT_MASK_DTYPE},
+                ),
+                "mask_device": (
+                    list(MASK_DEVICE_CHOICES),
+                    {"default": DEFAULT_MASK_DEVICE},
+                ),
+            },
         }
 
     RETURN_TYPES = ("IMAGE", "MASK", "MASK", "JSON", "STRING")
@@ -139,7 +406,19 @@ class EasyMobileSAM:
         "return previews, masks, combined mask, and the selected checkpoint path."
     )
 
-    def segment(self, image, sam_prompt, threshold, min_pixels_width, min_pixels_height):
+    def segment(
+        self,
+        image,
+        sam_prompt,
+        threshold,
+        min_pixels_width,
+        min_pixels_height,
+        grounding_config_choice: str = AUTO_SELECTION,
+        grounding_checkpoint_choice: str = AUTO_SELECTION,
+        mobile_sam_checkpoint_choice: str = AUTO_SELECTION,
+        mask_dtype: str = DEFAULT_MASK_DTYPE,
+        mask_device: str = DEFAULT_MASK_DEVICE,
+    ):
         if not sam_prompt or not sam_prompt.strip():
             raise ValueError("sam_prompt cannot be empty.")
 
@@ -150,7 +429,9 @@ class EasyMobileSAM:
         image_rgb = self._tensor_to_rgb(image)
         image_bgr = cv2.cvtColor(image_rgb, cv2.COLOR_RGB2BGR)
 
-        grounding_model = self._ensure_grounding_model()
+        grounding_model = self._ensure_grounding_model(
+            grounding_config_choice, grounding_checkpoint_choice
+        )
         detections, phrases = grounding_model.predict_with_caption(
             image=image_bgr,
             caption=sam_prompt,
@@ -162,12 +443,16 @@ class EasyMobileSAM:
             detections, phrases, threshold, min_pixels_width, min_pixels_height
         )
 
-        predictor = self._ensure_sam_predictor()
+        predictor = self._ensure_sam_predictor(mobile_sam_checkpoint_choice)
         predictor.set_image(image_rgb, image_format="RGB")
 
         mask_tensor, combined_mask = self._predict_masks(
             predictor, boxes_array, image_rgb.shape[:2]
         )
+
+        target_device = _resolve_mask_device_choice(mask_device)
+        mask_tensor = _cast_mask_tensor(mask_tensor, mask_dtype, target_device)
+        combined_mask = _cast_mask_tensor(combined_mask, mask_dtype, target_device)
 
         preview_rgb = self._render_preview(image_rgb, records)
         preview_tensor = torch.tensor(preview_rgb.astype(np.float32) / 255.0)
@@ -182,9 +467,9 @@ class EasyMobileSAM:
         )
 
     @classmethod
-    def _ensure_grounding_model(cls):
-        if cls._grounding_model is not None:
-            return cls._grounding_model
+    def _ensure_grounding_model(
+        cls, grounding_config_choice: str, grounding_checkpoint_choice: str
+    ):
         if GroundingDinoModel is None:
             hint = f" ({GROUNDING_DINO_IMPORT_ERROR})" if GROUNDING_DINO_IMPORT_ERROR else ""
             raise RuntimeError(
@@ -192,8 +477,11 @@ class EasyMobileSAM:
                 "Install it (e.g., `pip install groundingdino`) and restart ComfyUI."
                 + hint
             )
-        config_path = _grounding_config_path()
-        checkpoint_path = _grounding_checkpoint_path()
+        config_path = _grounding_config_path(grounding_config_choice)
+        checkpoint_path = _grounding_checkpoint_path(grounding_checkpoint_choice)
+        key = (config_path, checkpoint_path, cls._device.type)
+        if cls._grounding_model is not None and cls._grounding_model_key == key:
+            return cls._grounding_model
 
         try:
             cls._grounding_model = GroundingDinoModel(
@@ -213,22 +501,26 @@ class EasyMobileSAM:
                 )
             else:
                 raise
+        cls._grounding_model_key = key
         return cls._grounding_model
 
     @classmethod
-    def _ensure_sam_predictor(cls):
-        if cls._sam_predictor is not None:
+    def _ensure_sam_predictor(cls, mobile_sam_checkpoint_choice: str):
+        checkpoint_path = _mobile_sam_checkpoint_path(mobile_sam_checkpoint_choice)
+        key = (checkpoint_path, cls._device.type)
+        if cls._sam_predictor is not None and cls._sam_predictor_key == key:
+            cls._mobile_sam_checkpoint = checkpoint_path
             return cls._sam_predictor
         if not sam_model_registry:
             raise RuntimeError("MobileSAM registry is not available.")
         builder = sam_model_registry.get("vit_t") or sam_model_registry.get("default")
         if builder is None:
             raise RuntimeError("SAM builder is missing from the MobileSAM registry.")
-        checkpoint_path = _mobile_sam_checkpoint_path()
         cls._mobile_sam_checkpoint = checkpoint_path
         sam_model = builder(checkpoint=checkpoint_path)
         sam_model.to(cls._device)
         cls._sam_predictor = SamPredictor(sam_model)
+        cls._sam_predictor_key = key
         return cls._sam_predictor
 
     @staticmethod
